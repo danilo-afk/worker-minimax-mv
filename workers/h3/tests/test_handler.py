@@ -12,6 +12,7 @@ import handler
 
 IMAGE = "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n\x1a\npreview").decode()
 AUDIO = "data:audio/mpeg;base64," + base64.b64encode(b"ID3preview").decode()
+VIDEO = "data:video/mp4;base64," + base64.b64encode(b"\x00\x00\x00\x18ftypmp42preview").decode()
 
 
 def payload(**overrides):
@@ -61,6 +62,28 @@ class H3WorkerTests(unittest.TestCase):
 
         self.assertNotIn("VAEDecodeAudio", node_types)
         self.assertNotIn("audio", workflow["17"]["inputs"])
+
+    def test_ref_videos_enter_as_frames_keeping_input_audio(self):
+        values = handler.validate_input(payload(ref_videos=[VIDEO, VIDEO]))
+        workflow = handler.build_workflow(values, "ref.png", "ref.mp3", ["t/ref_video_0.mp4", "t/ref_video_1.mp4"])
+
+        self.assertEqual(len(values["ref_videos"]), 2)
+        self.assertEqual(workflow["100"]["class_type"], "LoadVideo")
+        self.assertEqual(workflow["100"]["inputs"]["file"], "t/ref_video_0.mp4")
+        self.assertEqual(workflow["101"]["class_type"], "GetVideoComponents")
+        self.assertEqual(workflow["9"]["inputs"]["ref_videos.ref_video_0"], ["101", 0])
+        self.assertEqual(workflow["9"]["inputs"]["ref_videos.ref_video_1"], ["103", 0])
+        # a trilha dos vídeos de referência não entra: o áudio segue sendo o do input
+        self.assertNotIn("ref_video_audios.ref_video_audio_0", workflow["9"]["inputs"])
+        self.assertEqual(workflow["9"]["inputs"]["ref_audios.ref_audio_0"], ["8", 0])
+
+    def test_ref_videos_are_optional_and_bounded(self):
+        self.assertEqual(handler.validate_input(payload())["ref_videos"], [])
+        self.assertNotIn("100", handler.build_workflow(handler.validate_input(payload()), "ref.png", "ref.mp3"))
+        with self.assertRaisesRegex(handler.WorkerError, "no máximo 3"):
+            handler.validate_input(payload(ref_videos=[VIDEO] * 4))
+        with self.assertRaisesRegex(handler.WorkerError, "MP4 ou WebM"):
+            handler.validate_input(payload(ref_videos=[IMAGE]))
 
     def test_manifest_uses_only_official_pinned_revisions(self):
         manifest_path = Path(__file__).parents[1] / "src" / "model_manifest.json"

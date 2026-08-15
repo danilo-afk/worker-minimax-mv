@@ -31,6 +31,8 @@ PREVIEW_PIXELS = DEFAULT_WIDTH * DEFAULT_HEIGHT
 MAX_PIXELS = 768 * 1344
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 MAX_AUDIO_BYTES = 50 * 1024 * 1024
+MAX_VIDEO_BYTES = 100 * 1024 * 1024
+MAX_REF_VIDEOS = 3
 ASPECT_RATIOS = {"21:9": 21 / 9, "16:9": 16 / 9, "4:3": 4 / 3, "1:1": 1.0, "3:4": 3 / 4, "9:16": 9 / 16}
 
 UNET_NAME = "minimax_h3_ref2va_int8_convrot.safetensors"
@@ -105,6 +107,30 @@ def _detect_audio(payload):
     raise WorkerError("audio deve ser MP3, WAV, FLAC, OGG ou M4A")
 
 
+def _detect_video(payload):
+    if len(payload) >= 12 and payload[4:8] == b"ftyp":
+        return ".mp4", "video/mp4"
+    if payload.startswith(b"\x1a\x45\xdf\xa3"):
+        return ".webm", "video/webm"
+    raise WorkerError("ref_videos deve conter MP4 ou WebM")
+
+
+def _decode_ref_videos(job_input):
+    raw = job_input.get("ref_videos") or []
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        raise WorkerError("ref_videos deve ser uma lista de base64")
+    if len(raw) > MAX_REF_VIDEOS:
+        raise WorkerError(f"ref_videos aceita no máximo {MAX_REF_VIDEOS} vídeos")
+    videos = []
+    for index, item in enumerate(raw):
+        payload, _ = _decode_media(item, f"ref_videos[{index}]", MAX_VIDEO_BYTES)
+        suffix, mime = _detect_video(payload)
+        videos.append({"bytes": payload, "suffix": suffix, "mime_type": mime})
+    return videos
+
+
 def align_frame_count(duration_seconds):
     frame_count = max(5, round(duration_seconds * FPS))
     while frame_count % 17 != 5:
@@ -155,6 +181,7 @@ def validate_input(job_input):
         raise WorkerError("seed fora do intervalo uint64")
     width, height = resolve_dimensions(job_input)
     frame_count = align_frame_count(duration)
+    ref_videos = _decode_ref_videos(job_input)
     if "<Picture 1>" not in prompt or "<Audio 1>" not in prompt:
         prompt = "Use <Picture 1> como referência visual e <Audio 1> como referência de voz, ritmo e música.\n\n" + prompt
     return {
@@ -162,6 +189,7 @@ def validate_input(job_input):
         "generated_duration": frame_count / FPS, "seed": seed, "width": width, "height": height,
         "image_bytes": image_bytes, "image_suffix": image_suffix, "image_mime_type": image_mime,
         "audio_bytes": audio_bytes, "audio_suffix": audio_suffix, "audio_mime_type": audio_mime,
+        "ref_videos": ref_videos,
     }
 
 
@@ -173,7 +201,17 @@ def prepare_input_files(values):
     audio_path = directory / f"reference{values['audio_suffix']}"
     image_path.write_bytes(values["image_bytes"])
     audio_path.write_bytes(values["audio_bytes"])
-    return {"directory": directory, "image_name": f"{token}/{image_path.name}", "audio_name": f"{token}/{audio_path.name}"}
+    video_names = []
+    for index, video in enumerate(values.get("ref_videos") or []):
+        video_path = directory / f"ref_video_{index}{video['suffix']}"
+        video_path.write_bytes(video["bytes"])
+        video_names.append(f"{token}/{video_path.name}")
+    return {
+        "directory": directory,
+        "image_name": f"{token}/{image_path.name}",
+        "audio_name": f"{token}/{audio_path.name}",
+        "video_names": video_names,
+    }
 
 
 def cleanup_input_files(input_files):
@@ -184,8 +222,8 @@ def cleanup_input_files(input_files):
     input_files["directory"].rmdir()
 
 
-def build_workflow(values, image_name, audio_name):
-    return {
+def build_workflow(values, image_name, audio_name, video_names=None):
+    workflow = {
         "1": {"class_type": "UNETLoader", "inputs": {"unet_name": UNET_NAME, "weight_dtype": "default"}},
         "2": {"class_type": "LoraLoaderModelOnly", "inputs": {"model": ["1", 0], "lora_name": LORA_NAME, "strength_model": 0.7}},
         "3": {"class_type": "MiniMaxH3SigmaShift", "inputs": {"model": ["2", 0], "shift_video": 12.0, "shift_audio": 6.0}},
@@ -207,6 +245,14 @@ def build_workflow(values, image_name, audio_name):
         "17": {"class_type": "CreateVideo", "inputs": {"images": ["15", 0], "fps": 24.0, "bit_depth": 8}},
         "18": {"class_type": "SaveVideo", "inputs": {"video": ["17", 0], "filename_prefix": "h3-preview/preview", "format": "mp4", "codec": "auto"}},
     }
+    # ref_videos entram como frames (LoadVideo -> GetVideoComponents); a trilha
+    # deles é descartada de propósito, o áudio de referência é o do input.
+    for index, name in enumerate(video_names or []):
+        load_id, components_id = str(100 + index * 2), str(101 + index * 2)
+        workflow[load_id] = {"class_type": "LoadVideo", "inputs": {"file": name}}
+        workflow[components_id] = {"class_type": "GetVideoComponents", "inputs": {"video": [load_id, 0]}}
+        workflow["9"]["inputs"][f"ref_videos.ref_video_{index}"] = [components_id, 0]
+    return workflow
 
 
 def _json_request(path, method="GET", payload=None, timeout=30):
@@ -369,6 +415,7 @@ def parse_result(history, values):
         "requested_duration_seconds": values["duration"],
         "generated_duration_seconds": values["generated_duration"],
         "audio_source": "input",
+        "ref_video_count": len(values.get("ref_videos") or []),
     }
 
 
@@ -385,7 +432,9 @@ def handler(job):
     log_progress(f"job={job_id} etapa=comfyui_pronto")
     try:
         input_files = prepare_input_files(values)
-        workflow = build_workflow(values, input_files["image_name"], input_files["audio_name"])
+        workflow = build_workflow(
+            values, input_files["image_name"], input_files["audio_name"], input_files["video_names"]
+        )
         prompt_id = queue_workflow(workflow)
         log_progress(f"job={job_id} etapa=workflow_enfileirado prompt_id={prompt_id}")
         history = wait_for_history(prompt_id)
