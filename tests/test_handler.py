@@ -85,11 +85,37 @@ class BuildWorkflowTests(unittest.TestCase):
     ):
         result = handler.handler({"input": {"idea": "test", "duration_seconds": 30}})
 
-        bootstrap.assert_called_once_with()
+        bootstrap.assert_called_once_with(include_planner=True)
         wait_for_comfyui.assert_called_once_with()
         queue_workflow.assert_called_once()
         wait_for_history.assert_called_once_with("prompt-1")
         parse_result.assert_called_once()
+        self.assertEqual(result, {"audio": "ok"})
+
+    @patch("handler.parse_result", return_value={"audio": "ok"})
+    @patch("handler.wait_for_history", return_value={"outputs": {}})
+    @patch("handler.queue_workflow", return_value="prompt-1")
+    @patch("handler.wait_for_comfyui")
+    @patch("handler.bootstrap_models")
+    def test_manual_input_skips_planner_model_bootstrap(
+        self,
+        bootstrap,
+        wait_for_comfyui,
+        queue_workflow,
+        wait_for_history,
+        parse_result,
+    ):
+        result = handler.handler(
+            {
+                "input": {
+                    "caption": "Structured caption",
+                    "lyrics": "[Intro]\nLyrics\n[Outro]",
+                    "duration_seconds": 8,
+                }
+            }
+        )
+
+        bootstrap.assert_called_once_with(include_planner=False)
         self.assertEqual(result, {"audio": "ok"})
 
 

@@ -62,10 +62,12 @@ def ensure_model(model):
     print(f"worker-music3: download e SHA-256 validados: {model['filename']}")
 
 
-def main():
+def main(include_planner=True):
     MODEL_ROOT.mkdir(parents=True, exist_ok=True)
     manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     for model in manifest["models"]:
+        if not include_planner and model["filename"].endswith("qwen3vl_4b_bf16.safetensors"):
+            continue
         ensure_model(model)
 
 

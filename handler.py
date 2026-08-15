@@ -37,10 +37,10 @@ class WorkerError(RuntimeError):
     pass
 
 
-def bootstrap_models():
+def bootstrap_models(*, include_planner):
     from src.bootstrap_models import main
 
-    main()
+    main(include_planner=include_planner)
 
 
 def _json_request(path, method="GET", payload=None, timeout=30):
@@ -219,7 +219,7 @@ def parse_result(history, values):
 
 def handler(job):
     workflow, values = build_workflow(job.get("input"))
-    bootstrap_models()
+    bootstrap_models(include_planner="55" in workflow)
     wait_for_comfyui()
     prompt_id = queue_workflow(workflow)
     history = wait_for_history(prompt_id)
