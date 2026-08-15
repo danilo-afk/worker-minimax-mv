@@ -3,6 +3,7 @@ import json
 import math
 import os
 import re
+import tempfile
 import subprocess
 import time
 import urllib.error
@@ -23,7 +24,7 @@ COMFY_OUTPUT_DIR = Path(os.environ.get("COMFY_OUTPUT_DIR", "/comfyui/output"))
 
 FPS = 24
 MIN_DURATION_SECONDS = 5.0
-MAX_DURATION_SECONDS = 10.0
+MAX_DURATION_SECONDS = 15.0
 DEFAULT_WIDTH = 864
 DEFAULT_HEIGHT = 480
 PREVIEW_PIXELS = DEFAULT_WIDTH * DEFAULT_HEIGHT
@@ -149,7 +150,7 @@ def validate_input(job_input):
     except (TypeError, ValueError) as exc:
         raise WorkerError("duration_seconds e seed inválidos") from exc
     if not math.isfinite(duration) or not MIN_DURATION_SECONDS <= duration <= MAX_DURATION_SECONDS:
-        raise WorkerError("duration_seconds deve estar entre 5 e 10")
+        raise WorkerError("duration_seconds deve estar entre 5 e 15")
     if not 0 <= seed <= 0xFFFFFFFFFFFFFFFF:
         raise WorkerError("seed fora do intervalo uint64")
     width, height = resolve_dimensions(job_input)
@@ -203,8 +204,7 @@ def build_workflow(values, image_name, audio_name):
         "13": {"class_type": "BasicGuider", "inputs": {"model": ["3", 0], "conditioning": ["9", 0]}},
         "14": {"class_type": "SamplerCustomAdvanced", "inputs": {"noise": ["12", 0], "guider": ["13", 0], "sampler": ["11", 0], "sigmas": ["10", 0], "latent_image": ["9", 1]}},
         "15": {"class_type": "VAEDecode", "inputs": {"samples": ["14", 0], "vae": ["5", 0]}},
-        "16": {"class_type": "VAEDecodeAudio", "inputs": {"samples": ["14", 0], "vae": ["6", 0]}},
-        "17": {"class_type": "CreateVideo", "inputs": {"images": ["15", 0], "audio": ["16", 0], "fps": 24.0, "bit_depth": 8}},
+        "17": {"class_type": "CreateVideo", "inputs": {"images": ["15", 0], "fps": 24.0, "bit_depth": 8}},
         "18": {"class_type": "SaveVideo", "inputs": {"video": ["17", 0], "filename_prefix": "h3-preview/preview", "format": "mp4", "codec": "auto"}},
     }
 
@@ -324,12 +324,38 @@ def probe_video(video_path):
     return json.loads(process.stdout)
 
 
+def mux_original_audio(video_bytes, video_path, values):
+    with tempfile.TemporaryDirectory(prefix="h3-mux-") as temp_directory:
+        temp_root = Path(temp_directory)
+        source_video_path = video_path
+        if source_video_path is None:
+            source_video_path = temp_root / "generated.mp4"
+            source_video_path.write_bytes(video_bytes)
+        audio_path = temp_root / f"original{values['audio_suffix']}"
+        output_path = temp_root / "final.mp4"
+        audio_path.write_bytes(values["audio_bytes"])
+        process = subprocess.run(
+            [
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                "-i", str(source_video_path), "-i", str(audio_path),
+                "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy",
+                "-c:a", "aac", "-b:a", "192k", "-ac", "2",
+                "-t", f"{values['generated_duration']:.6f}",
+                "-movflags", "+faststart", str(output_path),
+            ],
+            check=True, capture_output=True, text=True, timeout=300,
+        )
+        if process.stderr:
+            log_progress(f"ffmpeg_mux={process.stderr[-2000:]}")
+        return output_path.read_bytes(), probe_video(output_path)
+
+
 def parse_result(history, values):
     video_info = _find_video_info(history.get("outputs", {}))
     if video_info is None:
         raise WorkerError(f"Workflow terminou sem MP4: {json.dumps(history.get('outputs', {}))[:6000]}")
-    video_bytes, video_path = fetch_output_file(video_info)
-    probe = probe_video(video_path)
+    generated_video_bytes, video_path = fetch_output_file(video_info)
+    video_bytes, probe = mux_original_audio(generated_video_bytes, video_path, values)
     streams = probe.get("streams", [])
     return {
         "video": base64.b64encode(video_bytes).decode("ascii"),
@@ -342,6 +368,7 @@ def parse_result(history, values):
         "height": values["height"], "fps": FPS, "frame_count": values["frame_count"],
         "requested_duration_seconds": values["duration"],
         "generated_duration_seconds": values["generated_duration"],
+        "audio_source": "input",
     }
 
 

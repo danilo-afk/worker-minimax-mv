@@ -45,12 +45,22 @@ class H3WorkerTests(unittest.TestCase):
         self.assertEqual(workflow["9"]["inputs"]["ref_audios.ref_audio_0"], ["8", 0])
         self.assertEqual(workflow["18"]["class_type"], "SaveVideo")
 
-    def test_accepts_aspect_and_rejects_duration_outside_preview(self):
+    def test_accepts_aspect_and_trained_duration_limit(self):
         values = handler.validate_input(payload(aspect="9:16"))
         self.assertLess(values["width"], values["height"])
-        for duration in (4.99, 10.01):
+        extended = handler.validate_input(payload(duration_seconds=15))
+        self.assertEqual(extended["frame_count"], 362)
+        for duration in (4.99, 15.01):
             with self.subTest(duration=duration), self.assertRaisesRegex(handler.WorkerError, "duration_seconds"):
                 handler.validate_input(payload(duration_seconds=duration))
+
+    def test_graph_returns_silent_video_for_original_audio_mux(self):
+        values = handler.validate_input(payload())
+        workflow = handler.build_workflow(values, "ref.png", "ref.mp3")
+        node_types = {node["class_type"] for node in workflow.values()}
+
+        self.assertNotIn("VAEDecodeAudio", node_types)
+        self.assertNotIn("audio", workflow["17"]["inputs"])
 
     def test_manifest_uses_only_official_pinned_revisions(self):
         manifest_path = Path(__file__).parents[1] / "src" / "model_manifest.json"
@@ -60,16 +70,18 @@ class H3WorkerTests(unittest.TestCase):
         self.assertNotIn("nikdevs", manifest_path.read_text(encoding="utf-8"))
         self.assertNotIn("drbaph", manifest_path.read_text(encoding="utf-8"))
 
-    @patch("handler.probe_video", return_value={"format": {"duration": "8.0"}, "streams": [{"codec_type": "video"}, {"codec_type": "audio"}]})
+    @patch("handler.mux_original_audio", return_value=(b"muxed-mp4", {"format": {"duration": "8.0"}, "streams": [{"codec_type": "video"}, {"codec_type": "audio"}]}))
     @patch("handler.fetch_output_file", return_value=(b"mp4", None))
-    def test_returns_mp4_base64_and_metadata(self, fetch_output, probe_video):
+    def test_returns_mp4_with_original_audio_and_metadata(self, fetch_output, mux_original_audio):
         values = handler.validate_input(payload())
         result = handler.parse_result({"outputs": {"18": {"video": [{"filename": "preview.mp4"}]}}}, values)
 
-        self.assertEqual(result["video"], base64.b64encode(b"mp4").decode())
+        self.assertEqual(result["video"], base64.b64encode(b"muxed-mp4").decode())
         self.assertTrue(result["has_video"])
         self.assertTrue(result["has_audio"])
         self.assertEqual(result["duration_seconds"], 8.0)
+        self.assertEqual(result["audio_source"], "input")
+        mux_original_audio.assert_called_once_with(b"mp4", None, values)
 
 
 if __name__ == "__main__":
