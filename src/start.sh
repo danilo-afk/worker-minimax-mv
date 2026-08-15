@@ -6,6 +6,11 @@ if [ ! -d /runpod-volume ]; then
   exit 1
 fi
 
+LOG_DIR=/runpod-volume/logs
+mkdir -p "$LOG_DIR"
+: > "$LOG_DIR/comfyui-latest.log"
+: > "$LOG_DIR/handler-latest.log"
+
 echo "worker-music3: iniciando ComfyUI"
 python -u /comfyui/main.py \
   --disable-auto-launch \
@@ -13,7 +18,7 @@ python -u /comfyui/main.py \
   --listen 127.0.0.1 \
   --port 8188 \
   --log-stdout \
-  > /tmp/comfyui.log 2>&1 &
+  > "$LOG_DIR/comfyui-latest.log" 2>&1 &
 
 echo "worker-music3: iniciando handler RunPod"
 exec python -u /app/handler.py

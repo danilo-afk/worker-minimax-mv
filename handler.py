@@ -14,6 +14,7 @@ COMFY_BASE_URL = f"http://{COMFY_HOST}"
 COMFY_STARTUP_TIMEOUT_SECONDS = int(os.environ.get("COMFY_STARTUP_TIMEOUT_SECONDS", "1800"))
 WORKFLOW_TIMEOUT_SECONDS = int(os.environ.get("WORKFLOW_TIMEOUT_SECONDS", "2400"))
 WORKFLOW_PATH = Path(__file__).resolve().parent / "workflows" / "api" / "music3.json"
+HANDLER_LOG_PATH = Path("/runpod-volume/logs/handler-latest.log")
 MIN_DURATION_SECONDS = 0.04
 MAX_DURATION_SECONDS = 360.0
 
@@ -35,6 +36,17 @@ ALLOWED_LANGUAGES = {
 
 class WorkerError(RuntimeError):
     pass
+
+
+def log_progress(message):
+    line = f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} {message}"
+    print(f"worker-music3: {line}", flush=True)
+    try:
+        HANDLER_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with HANDLER_LOG_PATH.open("a", encoding="utf-8") as log_file:
+            log_file.write(f"{line}\n")
+    except OSError:
+        pass
 
 
 def bootstrap_models(*, include_planner):
@@ -68,7 +80,7 @@ def wait_for_comfyui():
         except (OSError, WorkerError, json.JSONDecodeError):
             time.sleep(2)
     log_tail = ""
-    log_path = Path("/tmp/comfyui.log")
+    log_path = Path("/runpod-volume/logs/comfyui-latest.log")
     if log_path.exists():
         log_tail = "\n".join(log_path.read_text(errors="replace").splitlines()[-80:])
     raise WorkerError(f"ComfyUI não iniciou em {COMFY_STARTUP_TIMEOUT_SECONDS}s.\n{log_tail}")
@@ -218,12 +230,26 @@ def parse_result(history, values):
 
 
 def handler(job):
+    job_id = job.get("id", "unknown")
+    started_at = time.monotonic()
+    log_progress(f"job={job_id} etapa=validar_input inicio")
     workflow, values = build_workflow(job.get("input"))
+    log_progress(
+        f"job={job_id} etapa=bootstrap inicio include_planner={'55' in workflow}"
+    )
     bootstrap_models(include_planner="55" in workflow)
+    log_progress(f"job={job_id} etapa=bootstrap concluida")
     wait_for_comfyui()
+    log_progress(f"job={job_id} etapa=comfyui_pronto")
     prompt_id = queue_workflow(workflow)
+    log_progress(f"job={job_id} etapa=workflow_enfileirado prompt_id={prompt_id}")
     history = wait_for_history(prompt_id)
-    return parse_result(history, values)
+    log_progress(f"job={job_id} etapa=workflow_concluido")
+    result = parse_result(history, values)
+    log_progress(
+        f"job={job_id} etapa=resultado_concluido elapsed={time.monotonic() - started_at:.1f}s"
+    )
+    return result
 
 
 if __name__ == "__main__":
