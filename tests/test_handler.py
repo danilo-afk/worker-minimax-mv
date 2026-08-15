@@ -20,6 +20,8 @@ class BuildWorkflowTests(unittest.TestCase):
         self.assertEqual(workflow["50"]["inputs"]["cfg"], 1.7)
         self.assertEqual(workflow["50"]["inputs"]["sampler_name"], "euler")
         self.assertFalse(workflow["55"]["inputs"]["keep_model_loaded"])
+        self.assertEqual(workflow["35"]["class_type"], "SaveAudioMP3")
+        self.assertEqual(workflow["35"]["inputs"]["quality"], "V0")
         self.assertEqual(values["max_duration"], 90)
 
     def test_manual_caption_and_lyrics_bypass_planner(self):

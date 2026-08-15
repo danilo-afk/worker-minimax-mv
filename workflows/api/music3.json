@@ -70,14 +70,11 @@
     }
   },
   "35": {
-    "class_type": "SaveAudioAdvanced",
+    "class_type": "SaveAudioMP3",
     "inputs": {
       "audio": ["54", 0],
       "filename_prefix": "minimax-music3/audio",
-      "format": {
-        "format": "mp3",
-        "quality": "V0"
-      }
+      "quality": "V0"
     }
   },
   "55": {
