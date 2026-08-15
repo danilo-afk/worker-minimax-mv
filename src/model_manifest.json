@@ -1,0 +1,28 @@
+{
+  "models": [
+    {
+      "repo_id": "Comfy-Org/MiniMax-Music-3",
+      "revision": "6444666eb6edfb2c7fcab5f8b81da8b84b4b17b6",
+      "filename": "diffusion_models/minimax_music3_dit_fp16.safetensors",
+      "size_bytes": 4914197682
+    },
+    {
+      "repo_id": "Comfy-Org/MiniMax-Music-3",
+      "revision": "6444666eb6edfb2c7fcab5f8b81da8b84b4b17b6",
+      "filename": "text_encoders/minimax_music3_text_encoder_pruned_int8_convrot.safetensors",
+      "size_bytes": 9196611886
+    },
+    {
+      "repo_id": "Comfy-Org/MiniMax-Music-3",
+      "revision": "6444666eb6edfb2c7fcab5f8b81da8b84b4b17b6",
+      "filename": "vae/minimax_music3_dav.safetensors",
+      "size_bytes": 216696128
+    },
+    {
+      "repo_id": "Comfy-Org/Qwen3-VL",
+      "revision": "d3f437bd7bd2df08e77c8fe5c51ca4239f753aa3",
+      "filename": "text_encoders/qwen3vl_4b_bf16.safetensors",
+      "size_bytes": 8875719384
+    }
+  ]
+}

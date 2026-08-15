@@ -1,0 +1,108 @@
+{
+  "44": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "minimax_music3_dit_fp16.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "46": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "minimax_music3_text_encoder_pruned_int8_convrot.safetensors",
+      "type": "minimax",
+      "device": "default"
+    }
+  },
+  "47": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "minimax_music3_dav.safetensors"
+    }
+  },
+  "48": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": ["45", 0]
+    }
+  },
+  "49": {
+    "class_type": "EmptyMiniMaxMusic3LatentAudio",
+    "inputs": {
+      "seconds": ["45", 1],
+      "batch_size": 1
+    }
+  },
+  "50": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["44", 0],
+      "positive": ["45", 0],
+      "negative": ["48", 0],
+      "latent_image": ["49", 0],
+      "seed": 0,
+      "steps": 30,
+      "cfg": 1.7,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1.0
+    }
+  },
+  "45": {
+    "class_type": "MiniMaxMusic3TextEncode",
+    "inputs": {
+      "clip": ["46", 0],
+      "caption": ["55", 0],
+      "lyrics": ["55", 1],
+      "seed": 0,
+      "max_duration": 90.0,
+      "cfg_scale": 1.7,
+      "top_k": 50
+    }
+  },
+  "54": {
+    "class_type": "VAEDecodeAudioTiled",
+    "inputs": {
+      "samples": ["50", 0],
+      "vae": ["47", 0],
+      "tile_size": 1536,
+      "overlap": 64
+    }
+  },
+  "35": {
+    "class_type": "SaveAudioAdvanced",
+    "inputs": {
+      "audio": ["54", 0],
+      "filename_prefix": "minimax-music3/audio",
+      "format": {
+        "format": "mp3",
+        "quality": "V0"
+      }
+    }
+  },
+  "55": {
+    "class_type": "M3SongPlanner",
+    "inputs": {
+      "text_encoder": "qwen3vl_4b_bf16.safetensors",
+      "idea": "A dark K-pop song about love and loss",
+      "genre_hint": "hip-pop",
+      "vocal_config": "female vocals",
+      "language": "English",
+      "duration_seconds": 60.0,
+      "seed": 0,
+      "temperature": 0.8,
+      "top_p": 0.95,
+      "top_k": 64,
+      "max_tokens": 2048,
+      "keep_model_loaded": false
+    }
+  },
+  "90": {
+    "class_type": "WorkerMusic3Metadata",
+    "inputs": {
+      "caption": ["55", 0],
+      "lyrics": ["55", 1],
+      "debug": ["55", 2]
+    }
+  }
+}

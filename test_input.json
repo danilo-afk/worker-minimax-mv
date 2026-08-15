@@ -1,0 +1,12 @@
+{
+  "input": {
+    "idea": "A dark K-pop song about love and loss under neon rain",
+    "genre": "hip-pop",
+    "vocals": "female vocals",
+    "language": "English",
+    "duration_seconds": 60,
+    "seed": 3877326292,
+    "temperature": 0.8,
+    "top_p": 0.95
+  }
+}

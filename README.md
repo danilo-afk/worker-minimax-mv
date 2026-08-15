@@ -38,4 +38,33 @@ Only independently adapted API templates and original integration code may be co
 
 ## Status
 
-Initial scaffold. The first implementation target is the MiniMax Music 3 worker.
+The MiniMax Music 3 worker is implemented with:
+
+- a prompt-oriented RunPod contract;
+- the author's local `M3SongPlanner` node pinned by commit;
+- a sanitized ComfyUI API workflow;
+- persistent model bootstrap through a RunPod network volume;
+- inline MP3 output plus generated caption and lyrics;
+- a public `linux/amd64` image published by GitHub Actions.
+
+The Krea 2 and H3 workers remain separate deployment stages.
+
+## Music 3 request
+
+```json
+{
+  "input": {
+    "idea": "A dark K-pop song about love and loss under neon rain",
+    "genre": "hip-pop",
+    "vocals": "female vocals",
+    "language": "English",
+    "duration_seconds": 60,
+    "seed": 3877326292
+  }
+}
+```
+
+The worker applies the author's `1.5x` duration guidance automatically, so a
+60-second writing target uses a 90-second Music 3 generation ceiling.
+
+See `docs/runpod-music3.md` for deployment and validation.
