@@ -51,6 +51,10 @@ class BuildWorkflowTests(unittest.TestCase):
                 if isinstance(value, list) and len(value) == 2 and isinstance(value[0], str):
                     self.assertIn(value[0], workflow)
 
+    def test_handler_propagates_errors_to_runpod(self):
+        with self.assertRaisesRegex(handler.WorkerError, "input deve ser um objeto"):
+            handler.handler({"input": None})
+
 
 if __name__ == "__main__":
     unittest.main()

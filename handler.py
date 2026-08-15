@@ -208,14 +208,11 @@ def parse_result(history, values):
 
 
 def handler(job):
-    try:
-        workflow, values = build_workflow(job.get("input"))
-        wait_for_comfyui()
-        prompt_id = queue_workflow(workflow)
-        history = wait_for_history(prompt_id)
-        return parse_result(history, values)
-    except Exception as exc:
-        return {"error": str(exc), "error_type": type(exc).__name__}
+    workflow, values = build_workflow(job.get("input"))
+    wait_for_comfyui()
+    prompt_id = queue_workflow(workflow)
+    history = wait_for_history(prompt_id)
+    return parse_result(history, values)
 
 
 if __name__ == "__main__":
