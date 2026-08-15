@@ -1,0 +1,4 @@
+runpod==1.7.13
+huggingface-hub[hf-transfer]==0.34.4
+hf-transfer==0.1.9
+transformers==4.57.1

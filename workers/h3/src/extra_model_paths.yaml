@@ -1,0 +1,6 @@
+h3_volume:
+  base_path: /runpod-volume/models
+  diffusion_models: diffusion_models
+  text_encoders: text_encoders
+  vae: vae
+  loras: loras
