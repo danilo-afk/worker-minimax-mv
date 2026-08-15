@@ -1,6 +1,7 @@
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import handler
 
@@ -54,6 +55,28 @@ class BuildWorkflowTests(unittest.TestCase):
     def test_handler_propagates_errors_to_runpod(self):
         with self.assertRaisesRegex(handler.WorkerError, "input deve ser um objeto"):
             handler.handler({"input": None})
+
+    @patch("handler.parse_result", return_value={"audio": "ok"})
+    @patch("handler.wait_for_history", return_value={"outputs": {}})
+    @patch("handler.queue_workflow", return_value="prompt-1")
+    @patch("handler.wait_for_comfyui")
+    @patch("handler.bootstrap_models")
+    def test_handler_bootstraps_models_inside_first_job(
+        self,
+        bootstrap,
+        wait_for_comfyui,
+        queue_workflow,
+        wait_for_history,
+        parse_result,
+    ):
+        result = handler.handler({"input": {"idea": "test", "duration_seconds": 30}})
+
+        bootstrap.assert_called_once_with()
+        wait_for_comfyui.assert_called_once_with()
+        queue_workflow.assert_called_once()
+        wait_for_history.assert_called_once_with("prompt-1")
+        parse_result.assert_called_once()
+        self.assertEqual(result, {"audio": "ok"})
 
 
 if __name__ == "__main__":

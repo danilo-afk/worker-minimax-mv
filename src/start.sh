@@ -6,8 +6,6 @@ if [ ! -d /runpod-volume ]; then
   exit 1
 fi
 
-python /app/src/bootstrap_models.py
-
 echo "worker-music3: iniciando ComfyUI"
 python -u /comfyui/main.py \
   --disable-auto-launch \
