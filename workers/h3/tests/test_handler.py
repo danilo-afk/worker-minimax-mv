@@ -85,6 +85,27 @@ class H3WorkerTests(unittest.TestCase):
         with self.assertRaisesRegex(handler.WorkerError, "MP4 ou WebM"):
             handler.validate_input(payload(ref_videos=[IMAGE]))
 
+    def test_extra_ref_images_become_picture_2_and_3(self):
+        values = handler.validate_input(payload(ref_images=[IMAGE, IMAGE]))
+        workflow = handler.build_workflow(
+            values, "ref_0.png", "ref.mp3", None, ["t/ref_0.png", "t/ref_1.png", "t/ref_2.png"])
+
+        self.assertEqual(len(values["ref_images"]), 3)
+        self.assertEqual(workflow["7"]["inputs"]["image"], "ref_0.png")
+        self.assertEqual(workflow["9"]["inputs"]["ref_images.ref_image_0"], ["7", 0])
+        self.assertEqual(workflow["201"]["inputs"]["image"], "t/ref_1.png")
+        self.assertEqual(workflow["9"]["inputs"]["ref_images.ref_image_1"], ["201", 0])
+        self.assertEqual(workflow["9"]["inputs"]["ref_images.ref_image_2"], ["202", 0])
+
+    def test_single_image_stays_the_default_and_limit_is_enforced(self):
+        values = handler.validate_input(payload())
+        self.assertEqual(len(values["ref_images"]), 1)
+        workflow = handler.build_workflow(values, "ref.png", "ref.mp3", None, ["t/ref_0.png"])
+        self.assertNotIn("201", workflow)
+        self.assertNotIn("ref_images.ref_image_1", workflow["9"]["inputs"])
+        with self.assertRaisesRegex(handler.WorkerError, "no máximo 3"):
+            handler.validate_input(payload(ref_images=[IMAGE] * 3))
+
     def test_manifest_uses_only_official_pinned_revisions(self):
         manifest_path = Path(__file__).parents[1] / "src" / "model_manifest.json"
         models = json.loads(manifest_path.read_text(encoding="utf-8"))["models"]

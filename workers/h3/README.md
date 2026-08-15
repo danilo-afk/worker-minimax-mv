@@ -30,12 +30,15 @@ O bootstrap persiste aproximadamente 69 GB no network volume com marcadores `.sh
     "seed": 3877326292,
     "width": 864,
     "height": 480,
+    "ref_images": ["data:image/png;base64,..."],
     "ref_videos": ["data:video/mp4;base64,...", "..."]
   }
 }
 ```
 
 Também aceita `aspect`: `21:9`, `16:9`, `4:3`, `1:1`, `3:4` ou `9:16`. Duração: 5–15 segundos, alinhada à grade temporal `17k+5`.
+
+`image` é sempre `<Picture 1>`. `ref_images` acrescenta `<Picture 2>` e `<Picture 3>` na ordem enviada (3 imagens no total, como no workflow do autor). Use a primeira para a identidade do rosto — um retrato frontal e nítido — e as seguintes para cenário, figurino e demais personagens: com o rosto pequeno ou de perfil na referência, o modelo inventa traços.
 
 `ref_videos` é opcional (até 3, MP4 ou WebM) e entra como referência de estilo/movimento via `LoadVideo` → `GetVideoComponents`. A trilha desses vídeos é descartada: o áudio de referência e a trilha final continuam sendo o `audio` do input.
 
