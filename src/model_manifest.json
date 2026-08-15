@@ -4,25 +4,29 @@
       "repo_id": "Comfy-Org/MiniMax-Music-3",
       "revision": "6444666eb6edfb2c7fcab5f8b81da8b84b4b17b6",
       "filename": "diffusion_models/minimax_music3_dit_fp16.safetensors",
-      "size_bytes": 4914197682
+      "size_bytes": 4914197682,
+      "sha256": "45494a2b6b69af115902ff28eaf54118d19067aa54da01000f3e3efce7ba0e34"
     },
     {
       "repo_id": "Comfy-Org/MiniMax-Music-3",
       "revision": "6444666eb6edfb2c7fcab5f8b81da8b84b4b17b6",
       "filename": "text_encoders/minimax_music3_text_encoder_pruned_int8_convrot.safetensors",
-      "size_bytes": 9196611886
+      "size_bytes": 9196611886,
+      "sha256": "010b7416d2336a08c711bc22ee65849c9623069ddb7d89bec011a75699e52014"
     },
     {
       "repo_id": "Comfy-Org/MiniMax-Music-3",
       "revision": "6444666eb6edfb2c7fcab5f8b81da8b84b4b17b6",
       "filename": "vae/minimax_music3_dav.safetensors",
-      "size_bytes": 216696128
+      "size_bytes": 216696128,
+      "sha256": "2a32155b769be01445fcc2a8663b910fc9e1751e18dc1c3ec528064512d9ef0c"
     },
     {
       "repo_id": "Comfy-Org/Qwen3-VL",
       "revision": "d3f437bd7bd2df08e77c8fe5c51ca4239f753aa3",
       "filename": "text_encoders/qwen3vl_4b_bf16.safetensors",
-      "size_bytes": 8875719384
+      "size_bytes": 8875719384,
+      "sha256": "36f3ff447ef59201722e8f9ce6020c9819fdcfba6aa2608c4e09b1c0ce114e34"
     }
   ]
 }
