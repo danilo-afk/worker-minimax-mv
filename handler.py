@@ -83,8 +83,8 @@ def validate_input(job_input):
         raise WorkerError("Informe idea ou caption+lyrics")
 
     duration = float(job_input.get("duration_seconds", 60))
-    if not 30 <= duration <= 300:
-        raise WorkerError("duration_seconds deve estar entre 30 e 300")
+    if not 20 <= duration <= 300:
+        raise WorkerError("duration_seconds deve estar entre 20 e 300")
 
     vocals = str(job_input.get("vocals", "female vocals"))
     if vocals not in ALLOWED_VOCALS:

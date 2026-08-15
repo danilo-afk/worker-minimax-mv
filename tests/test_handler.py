@@ -27,7 +27,7 @@ class BuildWorkflowTests(unittest.TestCase):
             {
                 "caption": "Structured caption",
                 "lyrics": "[Intro]\nLyrics\n[Outro]",
-                "duration_seconds": 30,
+                "duration_seconds": 20,
             }
         )
 
@@ -37,7 +37,7 @@ class BuildWorkflowTests(unittest.TestCase):
 
     def test_rejects_duration_outside_model_limits(self):
         with self.assertRaisesRegex(handler.WorkerError, "duration_seconds"):
-            handler.build_workflow({"idea": "test", "duration_seconds": 10})
+            handler.build_workflow({"idea": "test", "duration_seconds": 19})
 
     def test_accepts_platform_prompt_as_idea(self):
         workflow, _ = handler.build_workflow({"prompt": "A cinematic synth-pop anthem"})
