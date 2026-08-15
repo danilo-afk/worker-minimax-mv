@@ -14,6 +14,8 @@ COMFY_BASE_URL = f"http://{COMFY_HOST}"
 COMFY_STARTUP_TIMEOUT_SECONDS = int(os.environ.get("COMFY_STARTUP_TIMEOUT_SECONDS", "1800"))
 WORKFLOW_TIMEOUT_SECONDS = int(os.environ.get("WORKFLOW_TIMEOUT_SECONDS", "2400"))
 WORKFLOW_PATH = Path(__file__).resolve().parent / "workflows" / "api" / "music3.json"
+MIN_DURATION_SECONDS = 0.04
+MAX_DURATION_SECONDS = 360.0
 
 ALLOWED_VOCALS = {
     "female vocals",
@@ -83,8 +85,10 @@ def validate_input(job_input):
         raise WorkerError("Informe idea ou caption+lyrics")
 
     duration = float(job_input.get("duration_seconds", 60))
-    if not 20 <= duration <= 300:
-        raise WorkerError("duration_seconds deve estar entre 20 e 300")
+    if not MIN_DURATION_SECONDS <= duration <= MAX_DURATION_SECONDS:
+        raise WorkerError(
+            f"duration_seconds deve estar entre {MIN_DURATION_SECONDS} e {MAX_DURATION_SECONDS:g}"
+        )
 
     vocals = str(job_input.get("vocals", "female vocals"))
     if vocals not in ALLOWED_VOCALS:
@@ -99,7 +103,7 @@ def validate_input(job_input):
         raise WorkerError("seed deve estar entre 0 e 4294967295")
 
     max_duration = float(job_input.get("max_duration_seconds", duration * 1.5))
-    max_duration = min(300.0, max(duration, max_duration))
+    max_duration = min(MAX_DURATION_SECONDS, max(duration, max_duration))
 
     return {
         "idea": idea,

@@ -8,9 +8,11 @@
 - Execution timeout: 40 minutes for first boot plus model downloads.
 - Idle timeout: 5 seconds after validation to avoid idle charges.
 
-The image contains code only. The first worker downloads approximately 22 GiB
-of pinned model files to the network volume and validates every exact byte size.
-Later workers reuse the same files.
+The image contains code only. The handler becomes ready before model bootstrap,
+matching the proven RunPod pattern used by the older workers. The first job
+downloads approximately 22 GiB of pinned model files to the network volume and
+validates both exact byte size and SHA-256. Later workers reuse marker-validated
+files without hashing them again.
 
 ## Exact model profile
 
@@ -34,6 +36,14 @@ Pushes to `main` publish two GHCR tags:
 
 RunPod templates should use the immutable SHA tag after the first successful
 build. The moving `music3` tag is only for initial bootstrap.
+
+## Provisioned resources
+
+- Network volume: `8uo5w5b3cc` (`US-IL-1`, 50 GB).
+- Serverless endpoint: `slpzigher2zxw8`.
+- Workers: minimum `0`, maximum `1`.
+- GPU priority: RTX 4090, RTX 6000 Ada, L40S.
+- Duration: `0.04` to `360` seconds, matching the pinned ComfyUI node.
 
 ## Direct validation
 

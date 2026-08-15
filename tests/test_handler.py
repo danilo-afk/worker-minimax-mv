@@ -27,17 +27,31 @@ class BuildWorkflowTests(unittest.TestCase):
             {
                 "caption": "Structured caption",
                 "lyrics": "[Intro]\nLyrics\n[Outro]",
-                "duration_seconds": 20,
+                "duration_seconds": 8,
             }
         )
 
         self.assertNotIn("55", workflow)
         self.assertEqual(workflow["45"]["inputs"]["caption"], "Structured caption")
         self.assertEqual(workflow["45"]["inputs"]["lyrics"], "[Intro]\nLyrics\n[Outro]")
+        self.assertEqual(workflow["45"]["inputs"]["max_duration"], 12)
 
     def test_rejects_duration_outside_model_limits(self):
         with self.assertRaisesRegex(handler.WorkerError, "duration_seconds"):
-            handler.build_workflow({"idea": "test", "duration_seconds": 19})
+            handler.build_workflow({"idea": "test", "duration_seconds": 0.03})
+
+        with self.assertRaisesRegex(handler.WorkerError, "duration_seconds"):
+            handler.build_workflow({"idea": "test", "duration_seconds": 360.01})
+
+    def test_accepts_short_and_long_requested_durations(self):
+        for duration in (8, 20):
+            with self.subTest(duration=duration):
+                workflow, values = handler.build_workflow(
+                    {"idea": "test", "duration_seconds": duration}
+                )
+
+                self.assertEqual(workflow["55"]["inputs"]["duration_seconds"], duration)
+                self.assertEqual(values["duration"], duration)
 
     def test_accepts_platform_prompt_as_idea(self):
         workflow, _ = handler.build_workflow({"prompt": "A cinematic synth-pop anthem"})
