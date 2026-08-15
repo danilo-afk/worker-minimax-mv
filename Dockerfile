@@ -47,6 +47,7 @@ WORKDIR /app
 
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+RUN python -c "from transformers import CLIPTokenizer; import huggingface_hub"
 
 COPY handler.py ./
 COPY src ./src

@@ -74,6 +74,18 @@ def _json_request(path, method="GET", payload=None, timeout=30):
 def wait_for_comfyui():
     deadline = time.monotonic() + COMFY_STARTUP_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
+        pid_path = Path("/tmp/comfyui.pid")
+        if pid_path.exists():
+            try:
+                os.kill(int(pid_path.read_text(encoding="utf-8").strip()), 0)
+            except ProcessLookupError as exc:
+                log_path = Path("/runpod-volume/logs/comfyui-latest.log")
+                log_tail = ""
+                if log_path.exists():
+                    log_tail = "\n".join(
+                        log_path.read_text(errors="replace").splitlines()[-80:]
+                    )
+                raise WorkerError(f"ComfyUI encerrou durante o startup.\n{log_tail}") from exc
         try:
             _json_request("/system_stats", timeout=5)
             return

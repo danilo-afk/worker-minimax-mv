@@ -19,6 +19,7 @@ python -u /comfyui/main.py \
   --port 8188 \
   --log-stdout \
   > "$LOG_DIR/comfyui-latest.log" 2>&1 &
+echo "$!" > /tmp/comfyui.pid
 
 echo "worker-music3: iniciando handler RunPod"
 exec python -u /app/handler.py
