@@ -70,7 +70,7 @@ def validate_input(job_input):
     if not isinstance(job_input, dict):
         raise WorkerError("input deve ser um objeto JSON")
 
-    idea = str(job_input.get("idea", "")).strip()
+    idea = str(job_input.get("idea") or job_input.get("prompt") or "").strip()
     caption = str(job_input.get("caption", "")).strip()
     lyrics = str(job_input.get("lyrics", "")).strip()
     if not idea and not (caption and lyrics):

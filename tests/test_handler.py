@@ -38,6 +38,11 @@ class BuildWorkflowTests(unittest.TestCase):
         with self.assertRaisesRegex(handler.WorkerError, "duration_seconds"):
             handler.build_workflow({"idea": "test", "duration_seconds": 10})
 
+    def test_accepts_platform_prompt_as_idea(self):
+        workflow, _ = handler.build_workflow({"prompt": "A cinematic synth-pop anthem"})
+
+        self.assertEqual(workflow["55"]["inputs"]["idea"], "A cinematic synth-pop anthem")
+
     def test_all_links_point_to_existing_nodes(self):
         workflow, _ = handler.build_workflow({"idea": "test", "duration_seconds": 30})
 
