@@ -228,7 +228,9 @@ P_ORI = """Responda APENAS JSON sobre este frame:
 ou se ela aparecer invertida no quadro."""
 
 
-def e9_orientacao(clipes):
+def e9_orientacao(clipes, esperado="cabeca_para_cima"):
+    """esperado: 'cabeca_para_cima' (padrao) ou 'invertida' (bloco em que ela flutua de
+    cabeca para baixo de proposito). Sem isso o eval reprovaria a cena pedida."""
     falhas = []
     for c in clipes:
         for t in ("2.0", "5.0", "7.0"):
@@ -236,10 +238,14 @@ def e9_orientacao(clipes):
                 r = _llm(P_ORI, _frame(c, t, "/tmp/_e9.jpg"))
             except Exception:
                 continue
-            if r.get("mulher_de_cabeca_para_baixo") or not r.get("cabeca_dela_acima_dos_pes"):
+            invertida = bool(r.get("mulher_de_cabeca_para_baixo")) or not r.get("cabeca_dela_acima_dos_pes")
+            if esperado == "invertida" and not invertida:
+                falhas.append(f"{os.path.basename(c)}@{t}s NAO esta invertida")
+            elif esperado != "invertida" and invertida:
                 falhas.append(f"{os.path.basename(c)}@{t}s invertida")
+    alvo = "de cabeca para baixo" if esperado == "invertida" else "com a cabeca para cima"
     registrar("E9 orientacao dos personagens", not falhas,
-              "ela sempre com a cabeca para cima" if not falhas
+              f"ela sempre {alvo}, como esperado" if not falhas
               else f"{len(falhas)} frame(s): " + " | ".join(falhas[:4]))
 
 
@@ -326,6 +332,9 @@ def main():
     ap.add_argument("--ref-vampiro")
     ap.add_argument("--controle", nargs=2)
     ap.add_argument("--so", nargs="*", help="rodar apenas alguns evals, ex: E1 E2")
+    ap.add_argument("--orientacao", default="cabeca_para_cima",
+                    choices=["cabeca_para_cima", "invertida"],
+                    help="orientacao esperada da personagem neste bloco")
     a = ap.parse_args()
     quer = lambda e: not a.so or e in a.so
 
@@ -339,7 +348,7 @@ def main():
         if quer("E4"):
             e4_spec(a.clipes)
         if quer("E9"):
-            e9_orientacao(a.clipes)
+            e9_orientacao(a.clipes, a.orientacao)
         if quer("E10"):
             e10_cortes(a.clipes)
         if quer("E5") and len(a.clipes) > 1:
