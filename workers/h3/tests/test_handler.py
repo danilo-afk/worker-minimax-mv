@@ -3,6 +3,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
@@ -116,6 +117,43 @@ class H3WorkerTests(unittest.TestCase):
 
         with self.assertRaisesRegex(handler.WorkerError, "ref_image_size"):
             handler.validate_input(payload(ref_image_size="gigante"))
+
+    def test_audio_e_ajustado_a_duracao_do_clipe_antes_de_gerar(self):
+        """O nó não trunca ref_audios: o corte tem que acontecer antes do H3, não só no mux."""
+        values = handler.validate_input(payload(duration_seconds=8))
+        self.assertEqual(values["generated_duration"], 192 / 24)
+
+        chamadas = []
+
+        def falso_run(cmd, **kwargs):
+            chamadas.append(cmd)
+            if cmd[0] == "ffprobe":
+                return SimpleNamespace(stdout="20.0\n")
+            Path(cmd[-1]).write_bytes(b"RIFF\x00\x00\x00\x00WAVEcortado")
+            return SimpleNamespace(stdout="")
+
+        with patch.object(handler.subprocess, "run", side_effect=falso_run):
+            handler._fit_audio_to_clip(values)
+
+        corte = [c for c in chamadas if c[0] == "ffmpeg"]
+        self.assertTrue(corte, "deveria ter cortado o áudio de 20s para 8s")
+        self.assertIn("-t", corte[0])
+        self.assertEqual(corte[0][corte[0].index("-t") + 1], "8.000000")
+        self.assertEqual(values["audio_suffix"], ".wav")
+
+    def test_audio_curto_demais_e_recusado(self):
+        values = handler.validate_input(payload(duration_seconds=8))
+
+        def falso_run(cmd, **kwargs):
+            return SimpleNamespace(stdout="3.0\n")
+
+        with patch.object(handler.subprocess, "run", side_effect=falso_run):
+            with self.assertRaisesRegex(handler.WorkerError, "3.000s e o clipe precisa de 8.000s"):
+                handler._fit_audio_to_clip(values)
+
+    def test_limite_de_video_cabe_no_payload_do_runpod(self):
+        self.assertLessEqual(handler.MAX_VIDEO_BYTES * handler.MAX_REF_VIDEOS, handler.MAX_PAYLOAD_BYTES * 3)
+        self.assertLess(handler.MAX_VIDEO_BYTES, handler.MAX_PAYLOAD_BYTES)
 
     def test_manifest_uses_only_official_pinned_revisions(self):
         manifest_path = Path(__file__).parents[1] / "src" / "model_manifest.json"

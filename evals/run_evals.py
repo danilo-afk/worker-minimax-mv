@@ -14,6 +14,7 @@ EXPOSICAO_DESVIO_MAX = 10.0
 BRILHO_DELTA_MAX = 3.0
 EMENDA_DIF_MAX = 9.0
 AUDIO_CORR_MIN = 0.95
+CORTE_RAZAO_MAX = 4.0
 INSTANTES_CENA = ["0.5", "2.0", "4.0", "6.0", "7.5"]
 INSTANTES_ID = ["1.5", "4.0", "6.5"]
 
@@ -115,20 +116,32 @@ def e2_identidade(clipes, refs, controle=None):
     for nome, ref in refs.items():
         if not ref:
             continue
-        notas = []
+        notas, reprovas = [], []
         for c in clipes:
-            melhor = 0
+            # por instante, o recorte certo e o de maior similaridade (a composicao inverte);
+            # entre instantes usamos a MEDIANA, nao o melhor, para um bom angulo nao mascarar o resto
+            por_instante = []
             for t in INSTANTES_ID:
+                melhor, casou = 0, False
                 for lado, x in (("esq", 0), ("dir", 384)):
                     f = _frame(c, t, "/tmp/_e2.jpg", f"crop=384:640:{x}:120,scale=400:-1")
                     try:
                         r = _llm(P_ID, ref, f)
                     except Exception:
                         continue
-                    melhor = max(melhor, r.get("similaridade", 0))
-            notas.append(melhor)
-        ok = notas and min(notas) >= IDENT_MIN
-        registrar(f"E2 identidade {nome}", ok, f"notas por clipe {notas} (minimo exigido {IDENT_MIN})")
+                    if r.get("similaridade", 0) > melhor:
+                        melhor, casou = r.get("similaridade", 0), bool(r.get("mesma_pessoa"))
+                if melhor:
+                    por_instante.append(melhor)
+                    if not casou:
+                        reprovas.append(f"{os.path.basename(c)}@{t}s mesma_pessoa=false")
+            if por_instante:
+                notas.append(int(sorted(por_instante)[len(por_instante) // 2]))
+        ok = bool(notas) and min(notas) >= IDENT_MIN and not reprovas
+        registrar(f"E2 identidade {nome}", ok,
+                  f"mediana por clipe {notas} (minimo {IDENT_MIN})"
+                  + (f"; {len(reprovas)} amostra(s) com mesma_pessoa=false: " + "; ".join(reprovas[:3])
+                     if reprovas else ""))
 
 
 # ---------------- E3: tracos obrigatorios ----------------
@@ -179,6 +192,55 @@ def e4_spec(clipes):
     registrar("E4 aderencia a especificacao", ok,
               f"{len(chaves) - len(faltando)}/6 elementos presentes"
               + (f"; faltando: {', '.join(faltando)}" if faltando else ""))
+
+
+# ---------------- E10: cortes internos ----------------
+def e10_cortes(clipes):
+    """Um clipe deve ser um plano continuo. Salto grande entre frames vizinhos = corte."""
+    import numpy as np
+    from PIL import Image
+    achados = []
+    for c in clipes:
+        d = "/tmp/_e10"
+        subprocess.run(["rm", "-rf", d], check=False)
+        os.makedirs(d, exist_ok=True)
+        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", c,
+                        "-vf", "fps=8,scale=160:280", f"{d}/f%03d.png"], check=True, capture_output=True)
+        fs = sorted(os.listdir(d))
+        F = [np.asarray(Image.open(f"{d}/{x}").convert("L"), dtype=float) for x in fs]
+        difs = [np.abs(F[i] - F[i - 1]).mean() for i in range(1, len(F))]
+        if not difs:
+            continue
+        med = float(np.median(difs)) or 1e-6
+        pico = max(difs)
+        razao = pico / med
+        if razao > CORTE_RAZAO_MAX:
+            achados.append(f"{os.path.basename(c)}: corte em t={difs.index(pico) / 8:.1f}s ({razao:.0f}x a mediana)")
+    registrar("E10 sem cortes internos", not achados,
+              "todos os clipes sao plano continuo" if not achados else "; ".join(achados[:4]))
+
+
+# ---------------- E9: orientacao dos personagens ----------------
+P_ORI = """Responda APENAS JSON sobre este frame:
+{"mulher_de_cabeca_para_baixo": bool, "cabeca_dela_acima_dos_pes": bool,
+ "homem_em_pe_no_chao": bool, "descricao": str}
+"mulher_de_cabeca_para_baixo" e true se a cabeca dela estiver mais baixa que os quadris/pes,
+ou se ela aparecer invertida no quadro."""
+
+
+def e9_orientacao(clipes):
+    falhas = []
+    for c in clipes:
+        for t in ("2.0", "5.0", "7.0"):
+            try:
+                r = _llm(P_ORI, _frame(c, t, "/tmp/_e9.jpg"))
+            except Exception:
+                continue
+            if r.get("mulher_de_cabeca_para_baixo") or not r.get("cabeca_dela_acima_dos_pes"):
+                falhas.append(f"{os.path.basename(c)}@{t}s invertida")
+    registrar("E9 orientacao dos personagens", not falhas,
+              "ela sempre com a cabeca para cima" if not falhas
+              else f"{len(falhas)} frame(s): " + " | ".join(falhas[:4]))
 
 
 # ---------------- E5: continuidade ----------------
@@ -276,6 +338,10 @@ def main():
             e3_tracos(a.clipes)
         if quer("E4"):
             e4_spec(a.clipes)
+        if quer("E9"):
+            e9_orientacao(a.clipes)
+        if quer("E10"):
+            e10_cortes(a.clipes)
         if quer("E5") and len(a.clipes) > 1:
             e5_continuidade(a.clipes)
         if quer("E6"):
@@ -286,6 +352,18 @@ def main():
         if quer("E8"):
             e8_tecnico(a.final)
 
+    if not resultados:
+        print("\nERRO: nenhum eval foi executado. Um gate que nao avalia nada nao aprova nada.\n"
+              "Passe --clipes e/ou --final (e --trilha para E7).", file=sys.stderr)
+        sys.exit(2)
+    esperados = set(a.so) if a.so else None
+    if esperados:
+        rodados = {r[0].split()[0] for r in resultados}
+        faltando = esperados - rodados
+        if faltando:
+            print(f"\nERRO: evals pedidos mas nao executados: {', '.join(sorted(faltando))} "
+                  f"(faltou argumento de entrada?)", file=sys.stderr)
+            sys.exit(2)
     falhas = [r for r in resultados if not r[1]]
     print(f"\n{'REPROVADO' if falhas else 'APROVADO'}: {len(falhas)} de {len(resultados)} evals com falha")
     sys.exit(1 if falhas else 0)

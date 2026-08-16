@@ -31,7 +31,8 @@ PREVIEW_PIXELS = DEFAULT_WIDTH * DEFAULT_HEIGHT
 MAX_PIXELS = 768 * 1344
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 MAX_AUDIO_BYTES = 50 * 1024 * 1024
-MAX_VIDEO_BYTES = 100 * 1024 * 1024
+MAX_VIDEO_BYTES = 8 * 1024 * 1024
+MAX_PAYLOAD_BYTES = 10 * 1024 * 1024  # teto pratico do /run do RunPod
 MAX_REF_VIDEOS = 3
 MAX_REF_IMAGES = 3
 ASPECT_RATIOS = {"21:9": 21 / 9, "16:9": 16 / 9, "4:3": 4 / 3, "1:1": 1.0, "3:4": 3 / 4, "9:16": 9 / 16}
@@ -219,7 +220,38 @@ def validate_input(job_input):
     }
 
 
+def _fit_audio_to_clip(values):
+    """O nó encoda `ref_audios` inteiro, sem truncar ao vídeo: áudio mais longo que o
+    clipe desalinha o lip-sync. Cortamos para frame_count/24 ANTES de gerar, não só no mux."""
+    alvo = values["generated_duration"]
+    with tempfile.TemporaryDirectory(prefix="h3-fit-") as tmp:
+        origem = Path(tmp) / f"in{values['audio_suffix']}"
+        origem.write_bytes(values["audio_bytes"])
+        try:
+            proc = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                   "-of", "csv=p=0", str(origem)],
+                                  check=True, capture_output=True, text=True, timeout=60)
+            atual = float(proc.stdout.strip())
+        except (subprocess.SubprocessError, ValueError) as exc:
+            raise WorkerError("não foi possível ler a duração do áudio") from exc
+        if atual + 0.02 < alvo:
+            raise WorkerError(
+                f"audio tem {atual:.3f}s e o clipe precisa de {alvo:.3f}s "
+                f"({values['frame_count']} frames a {FPS} fps); envie áudio com a duração do clipe")
+        if abs(atual - alvo) <= 0.02:
+            return
+        destino = Path(tmp) / "fit.wav"
+        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(origem),
+                        "-t", f"{alvo:.6f}", "-c:a", "pcm_s16le", str(destino)],
+                       check=True, capture_output=True, timeout=300)
+        log_progress(f"audio_ajustado de={atual:.3f}s para={alvo:.3f}s")
+        values["audio_bytes"] = destino.read_bytes()
+        values["audio_suffix"] = ".wav"
+        values["audio_mime_type"] = "audio/wav"
+
+
 def prepare_input_files(values):
+    _fit_audio_to_clip(values)
     token = f"h3-{uuid.uuid4().hex}"
     directory = COMFY_INPUT_DIR / token
     directory.mkdir(parents=True, exist_ok=False)
@@ -438,6 +470,12 @@ def parse_result(history, values):
         raise WorkerError(f"Workflow terminou sem MP4: {json.dumps(history.get('outputs', {}))[:6000]}")
     generated_video_bytes, video_path = fetch_output_file(video_info)
     video_bytes, probe = mux_original_audio(generated_video_bytes, video_path, values)
+    # worker quente acumularia os MP4 em /comfyui/output ate lotar o disco
+    if video_path is not None:
+        try:
+            video_path.unlink(missing_ok=True)
+        except OSError:
+            log_progress(f"nao foi possivel remover {video_path}")
     streams = probe.get("streams", [])
     return {
         "video": base64.b64encode(video_bytes).decode("ascii"),
