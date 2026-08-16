@@ -28,6 +28,9 @@ multimodal.
 - **Aprova**: exatamente 2 pessoas em todos os frames, `rosto_duplicado=false`, nenhuma deformidade.
 - **Reprova**: qualquer frame com 3+ pessoas, rosto fantasma/derretido, membro extra.
 - **Não mede**: se as pessoas são os personagens certos (isso é E2).
+- **Cuidado com falso positivo**: o prompt do eval precisa informar os traços não-humanos do
+  elenco. Sem isso, o detector acusou "orelhas pontudas" como deformidade e reprovou uma
+  série boa. Um eval que reprova o certo custa tanto quanto um que aprova o errado.
 
 Foi este eval que faltou. A duplicação apareceu nos clipes 2 e 3 de uma série cujo clipe 1
 estava limpo — daí a segunda regra: **checar todos os clipes, não só o primeiro**.
@@ -72,7 +75,10 @@ e o último do clipe N-1.
 
 Luminância média (`signalstats` YAVG) de cada clipe.
 
-- **Aprova**: entre 40 e 60.
+- **Aprova**: entre 45 e 85, **e** desvio entre clipes <= 10.
+  O valor absoluto importa menos que a consistencia: uma serie a 72-80 pode estar boa,
+  uma a 29-53 nao esta. Calibrar o alvo por uma unica versao foi erro — o limiar 40-60
+  reprovava justamente a serie que o cliente elogiou visualmente.
 - Uma série saiu com 29, 34, 39 e 53 — escura e desigual. Correção na montagem:
   `gamma = ln(atual/255) / ln(alvo/255)`, alvo 47, aplicado por clipe.
   Normalizar pela *média dos clipes* não resolve: mantém tudo escuro se todos estiverem escuros.

@@ -9,7 +9,8 @@ import argparse, base64, json, math, os, subprocess, sys, urllib.request
 MODELO = "google/gemini-2.5-flash"
 PESSOAS_ESPERADAS = 2
 IDENT_MIN = 75
-EXPOSICAO_MIN, EXPOSICAO_MAX = 40.0, 60.0
+EXPOSICAO_MIN, EXPOSICAO_MAX = 45.0, 85.0
+EXPOSICAO_DESVIO_MAX = 10.0
 BRILHO_DELTA_MAX = 3.0
 EMENDA_DIF_MAX = 9.0
 AUDIO_CORR_MIN = 0.95
@@ -67,6 +68,10 @@ P_CENA = """Analise este frame. Responda APENAS JSON valido:
 - "rostos": inteiro, rostos humanos distintos
 - "rosto_duplicado": true se a mesma pessoa aparece mais de uma vez, ou ha rosto extra/fantasma/deformado alem dos dois personagens
 - "deformidades": lista curta de defeitos anatomicos (membro extra, mao deformada, rosto derretido, corpos fundidos); vazia se nao houver
+
+CONTEXTO: um dos personagens e um vampiro e TEM orelhas pontudas de elfo por design.
+Orelha pontuda NAO e deformidade e NAO deve entrar na lista. Pele palida e olhos fundos
+tambem sao do personagem. Reporte apenas defeitos reais de geracao.
 Seja literal: conte TODOS os rostos, inclusive parciais, escuros ou distorcidos."""
 
 
@@ -202,8 +207,11 @@ def e6_exposicao(clipes):
     lums = [_luma(c) for c in clipes]
     fora = [f"{os.path.basename(c)}={l:.0f}" for c, l in zip(clipes, lums)
             if not EXPOSICAO_MIN <= l <= EXPOSICAO_MAX]
-    registrar("E6 exposicao", not fora,
-              f"luminancias {[round(l) for l in lums]} (faixa {EXPOSICAO_MIN:.0f}-{EXPOSICAO_MAX:.0f})"
+    desvio = max(lums) - min(lums) if lums else 0
+    ok = not fora and desvio <= EXPOSICAO_DESVIO_MAX
+    registrar("E6 exposicao", ok,
+              f"luminancias {[round(l) for l in lums]}, desvio {desvio:.0f} "
+              f"(faixa {EXPOSICAO_MIN:.0f}-{EXPOSICAO_MAX:.0f}, desvio max {EXPOSICAO_DESVIO_MAX:.0f})"
               + (f"; fora: {', '.join(fora)}" if fora else ""))
 
 
