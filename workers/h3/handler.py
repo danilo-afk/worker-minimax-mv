@@ -203,6 +203,11 @@ def validate_input(job_input):
     width, height = resolve_dimensions(job_input)
     frame_count = align_frame_count(duration)
     ref_videos = _decode_ref_videos(job_input)
+    # "max" usa a borda curta de 2048 do pipeline de referência: mais tokens de
+    # identidade por rosto, ao custo de amostragem mais lenta.
+    ref_image_size = str(job_input.get("ref_image_size", "match"))
+    if ref_image_size not in ("match", "max"):
+        raise WorkerError("ref_image_size deve ser 'match' ou 'max'")
     if "<Picture 1>" not in prompt or "<Audio 1>" not in prompt:
         prompt = "Use <Picture 1> como referência visual e <Audio 1> como referência de voz, ritmo e música.\n\n" + prompt
     return {
@@ -210,7 +215,7 @@ def validate_input(job_input):
         "generated_duration": frame_count / FPS, "seed": seed, "width": width, "height": height,
         "image_bytes": image_bytes, "image_suffix": image_suffix, "image_mime_type": image_mime,
         "audio_bytes": audio_bytes, "audio_suffix": audio_suffix, "audio_mime_type": audio_mime,
-        "ref_videos": ref_videos, "ref_images": ref_images,
+        "ref_videos": ref_videos, "ref_images": ref_images, "ref_image_size": ref_image_size,
     }
 
 
@@ -260,7 +265,8 @@ def build_workflow(values, image_name, audio_name, video_names=None, image_names
         "9": {"class_type": "MiniMaxH3ReferenceToVideo", "inputs": {
             "clip": ["4", 0], "vae": ["5", 0], "audio_vae": ["6", 0], "prompt": values["prompt"],
             "width": values["width"], "height": values["height"], "length": values["frame_count"],
-            "ref_image_size": "match", "ref_images.ref_image_0": ["7", 0], "ref_audios.ref_audio_0": ["8", 0]}},
+            "ref_image_size": values["ref_image_size"], "ref_images.ref_image_0": ["7", 0],
+            "ref_audios.ref_audio_0": ["8", 0]}},
         "10": {"class_type": "BasicScheduler", "inputs": {"model": ["3", 0], "scheduler": "beta", "steps": 4, "denoise": 1.0}},
         "11": {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "euler"}},
         "12": {"class_type": "RandomNoise", "inputs": {"noise_seed": values["seed"]}},

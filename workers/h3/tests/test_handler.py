@@ -106,6 +106,17 @@ class H3WorkerTests(unittest.TestCase):
         with self.assertRaisesRegex(handler.WorkerError, "no máximo 3"):
             handler.validate_input(payload(ref_images=[IMAGE] * 3))
 
+    def test_ref_image_size_defaults_to_match_and_accepts_max(self):
+        default = handler.validate_input(payload())
+        self.assertEqual(default["ref_image_size"], "match")
+        self.assertEqual(handler.build_workflow(default, "r.png", "r.mp3")["9"]["inputs"]["ref_image_size"], "match")
+
+        maximo = handler.validate_input(payload(ref_image_size="max"))
+        self.assertEqual(handler.build_workflow(maximo, "r.png", "r.mp3")["9"]["inputs"]["ref_image_size"], "max")
+
+        with self.assertRaisesRegex(handler.WorkerError, "ref_image_size"):
+            handler.validate_input(payload(ref_image_size="gigante"))
+
     def test_manifest_uses_only_official_pinned_revisions(self):
         manifest_path = Path(__file__).parents[1] / "src" / "model_manifest.json"
         models = json.loads(manifest_path.read_text(encoding="utf-8"))["models"]
