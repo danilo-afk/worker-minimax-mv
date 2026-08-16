@@ -204,6 +204,21 @@ def validate_input(job_input):
     width, height = resolve_dimensions(job_input)
     frame_count = align_frame_count(duration)
     ref_videos = _decode_ref_videos(job_input)
+    # anchor_image ancora um frame REAL do video (MiniMaxH3AddGuide), diferente de
+    # ref_images/ref_videos, que sao so referencia estilistica: e o que da continuidade
+    # entre blocos sem a pose do bloco anterior contaminar a descricao da cena.
+    anchor = job_input.get("anchor_image")
+    anchor_image = None
+    if anchor:
+        anchor_bytes, _ = _decode_media(anchor, "anchor_image", MAX_IMAGE_BYTES)
+        anchor_suffix, anchor_mime = _detect_image(anchor_bytes)
+        anchor_image = {"bytes": anchor_bytes, "suffix": anchor_suffix, "mime_type": anchor_mime}
+    try:
+        anchor_frame_idx = int(job_input.get("anchor_frame_idx", 0))
+    except (TypeError, ValueError) as exc:
+        raise WorkerError("anchor_frame_idx invalido") from exc
+    if anchor_image and not -frame_count <= anchor_frame_idx < frame_count:
+        raise WorkerError(f"anchor_frame_idx deve ficar entre {-frame_count} e {frame_count - 1}")
     # "max" usa a borda curta de 2048 do pipeline de referência: mais tokens de
     # identidade por rosto, ao custo de amostragem mais lenta.
     ref_image_size = str(job_input.get("ref_image_size", "match"))
@@ -217,6 +232,7 @@ def validate_input(job_input):
         "image_bytes": image_bytes, "image_suffix": image_suffix, "image_mime_type": image_mime,
         "audio_bytes": audio_bytes, "audio_suffix": audio_suffix, "audio_mime_type": audio_mime,
         "ref_videos": ref_videos, "ref_images": ref_images, "ref_image_size": ref_image_size,
+        "anchor_image": anchor_image, "anchor_frame_idx": anchor_frame_idx,
     }
 
 
@@ -267,8 +283,14 @@ def prepare_input_files(values):
         video_path = directory / f"ref_video_{index}{video['suffix']}"
         video_path.write_bytes(video["bytes"])
         video_names.append(f"{token}/{video_path.name}")
+    anchor_name = None
+    if values.get("anchor_image"):
+        anchor_path = directory / f"anchor{values['anchor_image']['suffix']}"
+        anchor_path.write_bytes(values["anchor_image"]["bytes"])
+        anchor_name = f"{token}/{anchor_path.name}"
     return {
         "directory": directory,
+        "anchor_name": anchor_name,
         "image_name": image_names[0],
         "image_names": image_names,
         "audio_name": f"{token}/{audio_path.name}",
@@ -284,7 +306,7 @@ def cleanup_input_files(input_files):
     input_files["directory"].rmdir()
 
 
-def build_workflow(values, image_name, audio_name, video_names=None, image_names=None):
+def build_workflow(values, image_name, audio_name, video_names=None, image_names=None, anchor_name=None):
     workflow = {
         "1": {"class_type": "UNETLoader", "inputs": {"unet_name": UNET_NAME, "weight_dtype": "default"}},
         "2": {"class_type": "LoraLoaderModelOnly", "inputs": {"model": ["1", 0], "lora_name": LORA_NAME, "strength_model": 0.7}},
@@ -320,6 +342,12 @@ def build_workflow(values, image_name, audio_name, video_names=None, image_names
         workflow[load_id] = {"class_type": "LoadVideo", "inputs": {"file": name}}
         workflow[components_id] = {"class_type": "GetVideoComponents", "inputs": {"video": [load_id, 0]}}
         workflow["9"]["inputs"][f"ref_videos.ref_video_{index}"] = [components_id, 0]
+    if anchor_name:
+        workflow["300"] = {"class_type": "LoadImage", "inputs": {"image": anchor_name}}
+        workflow["301"] = {"class_type": "MiniMaxH3AddGuide", "inputs": {
+            "positive": ["9", 0], "latent": ["9", 1], "vae": ["5", 0],
+            "image": ["300", 0], "frame_idx": values["anchor_frame_idx"]}}
+        workflow["13"]["inputs"]["conditioning"] = ["301", 0]
     return workflow
 
 
@@ -491,6 +519,8 @@ def parse_result(history, values):
         "audio_source": "input",
         "ref_video_count": len(values.get("ref_videos") or []),
         "ref_image_count": len(values.get("ref_images") or []),
+        "anchored": bool(values.get("anchor_image")),
+        "anchor_frame_idx": values.get("anchor_frame_idx", 0),
     }
 
 
@@ -509,7 +539,7 @@ def handler(job):
         input_files = prepare_input_files(values)
         workflow = build_workflow(
             values, input_files["image_name"], input_files["audio_name"],
-            input_files["video_names"], input_files["image_names"],
+            input_files["video_names"], input_files["image_names"], input_files["anchor_name"],
         )
         prompt_id = queue_workflow(workflow)
         log_progress(f"job={job_id} etapa=workflow_enfileirado prompt_id={prompt_id}")

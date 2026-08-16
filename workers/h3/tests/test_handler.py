@@ -155,6 +155,37 @@ class H3WorkerTests(unittest.TestCase):
         self.assertLessEqual(handler.MAX_VIDEO_BYTES * handler.MAX_REF_VIDEOS, handler.MAX_PAYLOAD_BYTES * 3)
         self.assertLess(handler.MAX_VIDEO_BYTES, handler.MAX_PAYLOAD_BYTES)
 
+    def test_anchor_image_ancora_o_primeiro_frame_via_addguide(self):
+        """Continuidade real entre blocos: o clipe COMECA no frame ancorado, em vez de
+        apenas se inspirar no anterior (que era o que fazia a pose contaminar a cena)."""
+        values = handler.validate_input(payload(anchor_image=IMAGE))
+        self.assertIsNotNone(values["anchor_image"])
+        self.assertEqual(values["anchor_frame_idx"], 0)
+
+        workflow = handler.build_workflow(values, "ref.png", "ref.mp3", None, ["t/r0.png"], "t/anchor.png")
+        self.assertEqual(workflow["300"]["class_type"], "LoadImage")
+        self.assertEqual(workflow["300"]["inputs"]["image"], "t/anchor.png")
+        self.assertEqual(workflow["301"]["class_type"], "MiniMaxH3AddGuide")
+        self.assertEqual(workflow["301"]["inputs"]["frame_idx"], 0)
+        self.assertEqual(workflow["301"]["inputs"]["image"], ["300", 0])
+        self.assertEqual(workflow["301"]["inputs"]["latent"], ["9", 1])
+        # o guider passa a consumir o conditioning ancorado, nao o cru
+        self.assertEqual(workflow["13"]["inputs"]["conditioning"], ["301", 0])
+
+    def test_sem_ancora_o_grafo_fica_igual_ao_de_antes(self):
+        values = handler.validate_input(payload())
+        self.assertIsNone(values["anchor_image"])
+        workflow = handler.build_workflow(values, "ref.png", "ref.mp3")
+        self.assertNotIn("300", workflow)
+        self.assertNotIn("301", workflow)
+        self.assertEqual(workflow["13"]["inputs"]["conditioning"], ["9", 0])
+
+    def test_anchor_frame_idx_e_validado_contra_a_duracao(self):
+        values = handler.validate_input(payload(anchor_image=IMAGE, anchor_frame_idx=-1))
+        self.assertEqual(values["anchor_frame_idx"], -1)  # negativo conta do fim
+        with self.assertRaisesRegex(handler.WorkerError, "anchor_frame_idx"):
+            handler.validate_input(payload(anchor_image=IMAGE, anchor_frame_idx=999))
+
     def test_manifest_uses_only_official_pinned_revisions(self):
         manifest_path = Path(__file__).parents[1] / "src" / "model_manifest.json"
         models = json.loads(manifest_path.read_text(encoding="utf-8"))["models"]

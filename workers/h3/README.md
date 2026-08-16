@@ -32,6 +32,8 @@ O bootstrap persiste aproximadamente 69 GB no network volume com marcadores `.sh
     "height": 480,
     "ref_images": ["data:image/png;base64,..."],
     "ref_image_size": "match",
+    "anchor_image": "data:image/png;base64,...",
+    "anchor_frame_idx": 0,
     "ref_videos": ["data:video/mp4;base64,...", "..."]
   }
 }
@@ -42,6 +44,8 @@ Também aceita `aspect`: `21:9`, `16:9`, `4:3`, `1:1`, `3:4` ou `9:16`. Duraçã
 `image` é sempre `<Picture 1>`. `ref_images` acrescenta `<Picture 2>` e `<Picture 3>` na ordem enviada (3 imagens no total, como no workflow do autor). Use a primeira para a identidade do rosto — um retrato frontal e nítido — e as seguintes para cenário, figurino e demais personagens: com o rosto pequeno ou de perfil na referência, o modelo inventa traços.
 
 `ref_image_size` aceita `match` (padrão, reduz cada referência à área da geração) ou `max` (borda curta de 2048 do pipeline de referência, melhor fidelidade de identidade e amostragem mais lenta). Como o nó só reduz e nunca amplia, o peso de identidade de cada personagem é proporcional à resolução da referência enviada: amplie retratos pequenos antes de enviar ou o personagem perde traços marcantes.
+
+`anchor_image` ancora um frame REAL do vídeo via `MiniMaxH3AddGuide` (`anchor_frame_idx`, negativo conta do fim). É diferente de `ref_images`/`ref_videos`, que são referência estilística: a âncora faz o clipe **começar** naquele frame. Para encadear blocos, passe o último frame do bloco anterior como `anchor_image` — usar o tail como `ref_video` faz a pose do bloco anterior dominar a descrição e a cena derivar a cada elo.
 
 `ref_videos` é opcional (até 3, MP4 ou WebM) e entra como referência de estilo/movimento via `LoadVideo` → `GetVideoComponents`. A trilha desses vídeos é descartada: o áudio de referência e a trilha final continuam sendo o `audio` do input.
 
