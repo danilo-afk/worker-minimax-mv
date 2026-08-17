@@ -4,10 +4,10 @@ Uso:
     python3 evals/run_evals.py --clipes a.mp4 b.mp4 --final final.mp4 \
         --ref-maia maia.jpg --ref-vampiro vamp.jpg --trilha trilha.mp3
 """
-import argparse, base64, json, math, os, subprocess, sys, urllib.request
+import argparse, base64, json, math, os, re, subprocess, sys, urllib.request
 
 MODELO = "google/gemini-2.5-flash"
-PESSOAS_ESPERADAS = 2
+PESSOAS_ESPERADAS = 2  # sobrescrito por --pessoas
 IDENT_MIN = 75
 EXPOSICAO_MIN, EXPOSICAO_MAX = 45.0, 85.0
 EXPOSICAO_DESVIO_MAX = 10.0
@@ -15,7 +15,22 @@ BRILHO_DELTA_MAX = 3.0
 EMENDA_DIF_MAX = 9.0
 AUDIO_CORR_MIN = 0.95
 CORTE_RAZAO_MAX = 4.0
-INSTANTES_CENA = ["0.5", "2.0", "4.0", "6.0", "7.5"]
+INSTANTES_CENA = ["0.5", "1.5", "2.5", "3.5", "4.5", "5.5", "6.5", "7.5"]
+
+
+def _instantes(clipe):
+    """Amostra dentro da duracao real: bloco de 175 frames tem 7.29s e t=7.5 nao existe."""
+    p = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                        "-of", "csv=p=0", clipe], capture_output=True, text=True)
+    try:
+        dur = float(p.stdout.strip())
+    except ValueError:
+        return INSTANTES_CENA
+    fim = max(0.5, dur - 0.15)
+    dentro = [t for t in INSTANTES_CENA if float(t) <= fim]
+    if not dentro or float(dentro[-1]) < fim - 0.4:
+        dentro.append(f"{fim:.2f}")
+    return dentro
 INSTANTES_ID = ["1.5", "4.0", "6.5"]
 
 resultados = []
@@ -67,19 +82,25 @@ def registrar(eval_id, ok, detalhe):
 P_CENA = """Analise este frame. Responda APENAS JSON valido:
 - "pessoas": inteiro, pessoas humanas visiveis (conte qualquer rosto ou corpo, mesmo parcial, desfocado, deformado ou ao fundo)
 - "rostos": inteiro, rostos humanos distintos
-- "rosto_duplicado": true se a mesma pessoa aparece mais de uma vez, ou ha rosto extra/fantasma/deformado alem dos dois personagens
-- "deformidades": lista curta de defeitos anatomicos (membro extra, mao deformada, rosto derretido, corpos fundidos); vazia se nao houver
+- "rosto_duplicado": true se a mesma pessoa aparece mais de uma vez, ou ha rosto extra/fantasma/deformado alem dos personagens esperados
+- "pernas": inteiro, quantas PERNAS distintas voce conta na pessoa (o normal e 2; conte coxas/panturrilhas/pes separados, mesmo parciais ou sobrepostos). Se o enquadramento corta as pernas fora, responda 2
+- "bracos": inteiro, quantos BRACOS distintos (o normal e 2). Se o enquadramento corta os bracos fora, responda 2
+- "maos_ok": true se as maos visiveis tem 5 dedos e formato normal; true tambem se nenhuma mao aparece
+- "deformidades": lista curta de defeitos anatomicos (perna extra, braco extro, mao deformada, dedo a mais, rosto derretido, corpos fundidos, membro que nasce do lugar errado); vazia se nao houver
 
-CONTEXTO: um dos personagens e um vampiro e TEM orelhas pontudas de elfo por design.
-Orelha pontuda NAO e deformidade e NAO deve entrar na lista. Pele palida e olhos fundos
-tambem sao do personagem. Reporte apenas defeitos reais de geracao.
-Seja literal: conte TODOS os rostos, inclusive parciais, escuros ou distorcidos."""
+CONTEXTO: quando ha um personagem masculino, ele e um vampiro e TEM orelhas pontudas de elfo
+por design. Orelha pontuda NAO e deformidade e NAO deve entrar na lista. Pele palida e olhos
+fundos tambem sao do personagem. Reporte apenas defeitos reais de geracao.
+Seja literal: conte TODOS os rostos, inclusive parciais, escuros ou distorcidos.
+ATENCAO ESPECIAL A MEMBROS: em pose sentada as pernas se sobrepoem e o modelo costuma gerar uma
+PERNA EXTRA. Siga cada perna do quadril ate o pe antes de contar. Se houver 3 pernas ou 3 bracos,
+reporte o numero real e inclua "perna extra"/"braco extra" em deformidades."""
 
 
 def e1_cena(clipes):
     falhas = []
     for c in clipes:
-        for t in INSTANTES_CENA:
+        for t in _instantes(c):
             try:
                 r = _llm(P_CENA, _frame(c, t, "/tmp/_e1.jpg"))
             except Exception as exc:
@@ -88,6 +109,13 @@ def e1_cena(clipes):
             problema = []
             if r.get("pessoas") != PESSOAS_ESPERADAS:
                 problema.append(f"{r.get('pessoas')} pessoas")
+            # so MEMBRO A MAIS e defeito: contar menos que 2 e enquadramento cortando fora
+            if isinstance(r.get("pernas"), int) and r["pernas"] > 2:
+                problema.append(f"{r['pernas']} pernas")
+            if isinstance(r.get("bracos"), int) and r["bracos"] > 2:
+                problema.append(f"{r['bracos']} bracos")
+            if r.get("maos_ok") is False:
+                problema.append("maos deformadas")
             if r.get("rosto_duplicado"):
                 problema.append("DUPLICADO")
             if r.get("deformidades"):
@@ -95,7 +123,7 @@ def e1_cena(clipes):
             if problema:
                 falhas.append(f"{os.path.basename(c)}@{t}s: {'; '.join(problema)}")
     registrar("E1 sanidade da cena", not falhas,
-              "todos os frames com 2 pessoas, sem duplicacao" if not falhas
+              f"todos os frames com {PESSOAS_ESPERADAS} pessoa(s), sem duplicacao" if not falhas
               else f"{len(falhas)} frame(s): " + " | ".join(falhas[:4]))
 
 
@@ -192,6 +220,32 @@ def e4_spec(clipes):
     registrar("E4 aderencia a especificacao", ok,
               f"{len(chaves) - len(faltando)}/6 elementos presentes"
               + (f"; faltando: {', '.join(faltando)}" if faltando else ""))
+
+
+# ---------------- E11: dominante de cor (marca) ----------------
+def e11_cor(clipes, p10_min=-15.0):
+    """A marca e azul-hora. O defeito real e uma LAVAGEM VERMELHA tomando o plano; medimos
+    pela profundidade da excursao (decil inferior de UAVG-VAVG), nao pela media nem pela
+    oscilacao - oscilacao reprova push-in legitimo (pele em close desloca a cor).
+    Calibrado: clipes entregues ficam entre +3.6 e -10.8; um clipe lavado de vermelho deu -26.7."""
+    falhas, detalhes = [], []
+    for c in clipes:
+        p = subprocess.run(["ffmpeg", "-hide_banner", "-i", c, "-vf",
+                            "select='not(mod(n,12))',signalstats,metadata=print",
+                            "-f", "null", "-"], capture_output=True, text=True)
+        g = lambda k: [float(m) for m in re.findall(rf"signalstats\.{k}=([\d.]+)", p.stderr)]
+        u, v = g("UAVG"), g("VAVG")
+        if not u or len(u) != len(v):
+            falhas.append(f"{os.path.basename(c)}: sem leitura de cor")
+            continue
+        az = sorted(a - b for a, b in zip(u, v))
+        p10 = az[len(az) // 10]
+        detalhes.append(f"{os.path.basename(c)}: p10 {p10:+.1f}")
+        if p10 < p10_min:
+            falhas.append(f"{os.path.basename(c)}: lavagem vermelha (p10 {p10:+.1f} < {p10_min:+.0f})")
+    registrar("E11 dominante de cor", not falhas,
+              "sem lavagem vermelha - " + ", ".join(detalhes) if not falhas
+              else "; ".join(falhas[:3]))
 
 
 # ---------------- E10: cortes internos ----------------
@@ -332,10 +386,18 @@ def main():
     ap.add_argument("--ref-vampiro")
     ap.add_argument("--controle", nargs=2)
     ap.add_argument("--so", nargs="*", help="rodar apenas alguns evals, ex: E1 E2")
+    ap.add_argument("--luz-min", type=float, default=None,
+                    help="piso de luminancia do E6 (default 45, calibrado em cena iluminada; praia noturna pede ~30)")
+    ap.add_argument("--pessoas", type=int, default=2,
+                    help="quantas pessoas o E1 deve exigir em cada frame")
     ap.add_argument("--orientacao", default="cabeca_para_cima",
                     choices=["cabeca_para_cima", "invertida"],
                     help="orientacao esperada da personagem neste bloco")
     a = ap.parse_args()
+    global PESSOAS_ESPERADAS, EXPOSICAO_MIN
+    PESSOAS_ESPERADAS = a.pessoas
+    if a.luz_min is not None:
+        EXPOSICAO_MIN = a.luz_min
     quer = lambda e: not a.so or e in a.so
 
     if a.clipes:
@@ -349,6 +411,8 @@ def main():
             e4_spec(a.clipes)
         if quer("E9"):
             e9_orientacao(a.clipes, a.orientacao)
+        if quer("E11"):
+            e11_cor(a.clipes)
         if quer("E10"):
             e10_cortes(a.clipes)
         if quer("E5") and len(a.clipes) > 1:
