@@ -224,6 +224,9 @@ def validate_input(job_input):
     ref_image_size = str(job_input.get("ref_image_size", "match"))
     if ref_image_size not in ("match", "max"):
         raise WorkerError("ref_image_size deve ser 'match' ou 'max'")
+    audio_mode = str(job_input.get("audio_mode", "reference")).strip().lower()
+    if audio_mode not in ("reference", "generated"):
+        raise WorkerError("audio_mode deve ser 'reference' (muxa o audio enviado) ou 'generated' (usa o audio do modelo)")
     if "<Picture 1>" not in prompt or "<Audio 1>" not in prompt:
         prompt = "Use <Picture 1> como referência visual e <Audio 1> como referência de voz, ritmo e música.\n\n" + prompt
     return {
@@ -233,6 +236,7 @@ def validate_input(job_input):
         "audio_bytes": audio_bytes, "audio_suffix": audio_suffix, "audio_mime_type": audio_mime,
         "ref_videos": ref_videos, "ref_images": ref_images, "ref_image_size": ref_image_size,
         "anchor_image": anchor_image, "anchor_frame_idx": anchor_frame_idx,
+        "audio_mode": audio_mode,
     }
 
 
@@ -327,6 +331,9 @@ def build_workflow(values, image_name, audio_name, video_names=None, image_names
         "13": {"class_type": "BasicGuider", "inputs": {"model": ["3", 0], "conditioning": ["9", 0]}},
         "14": {"class_type": "SamplerCustomAdvanced", "inputs": {"noise": ["12", 0], "guider": ["13", 0], "sampler": ["11", 0], "sigmas": ["10", 0], "latent_image": ["9", 1]}},
         "15": {"class_type": "VAEDecode", "inputs": {"samples": ["14", 0], "vae": ["5", 0]}},
+        # o latente do sampler e conjunto: decodifica-se DUAS vezes, uma por VAE.
+        # sem o decode de audio o modelo gera fala/ambiencia e nos jogamos fora.
+        "16": {"class_type": "VAEDecodeAudio", "inputs": {"samples": ["14", 0], "vae": ["6", 0]}},
         "17": {"class_type": "CreateVideo", "inputs": {"images": ["15", 0], "fps": 24.0, "bit_depth": 8}},
         "18": {"class_type": "SaveVideo", "inputs": {"video": ["17", 0], "filename_prefix": "h3-preview/preview", "format": "mp4", "codec": "auto"}},
     }
@@ -342,6 +349,9 @@ def build_workflow(values, image_name, audio_name, video_names=None, image_names
         workflow[load_id] = {"class_type": "LoadVideo", "inputs": {"file": name}}
         workflow[components_id] = {"class_type": "GetVideoComponents", "inputs": {"video": [load_id, 0]}}
         workflow["9"]["inputs"][f"ref_videos.ref_video_{index}"] = [components_id, 0]
+    if values["audio_mode"] == "generated":
+        workflow["17"]["inputs"]["audio"] = ["16", 0]
+
     if anchor_name:
         workflow["300"] = {"class_type": "LoadImage", "inputs": {"image": anchor_name}}
         workflow["301"] = {"class_type": "MiniMaxH3AddGuide", "inputs": {
@@ -497,7 +507,11 @@ def parse_result(history, values):
     if video_info is None:
         raise WorkerError(f"Workflow terminou sem MP4: {json.dumps(history.get('outputs', {}))[:6000]}")
     generated_video_bytes, video_path = fetch_output_file(video_info)
-    video_bytes, probe = mux_original_audio(generated_video_bytes, video_path, values)
+    if values["audio_mode"] == "generated":
+        # o MP4 ja sai com a fala/ambiencia que o modelo criou; muxar por cima apagaria
+        video_bytes, probe = generated_video_bytes, probe_video(video_path) if video_path else {}
+    else:
+        video_bytes, probe = mux_original_audio(generated_video_bytes, video_path, values)
     # worker quente acumularia os MP4 em /comfyui/output ate lotar o disco
     if video_path is not None:
         try:

@@ -56,13 +56,27 @@ class H3WorkerTests(unittest.TestCase):
             with self.subTest(duration=duration), self.assertRaisesRegex(handler.WorkerError, "duration_seconds"):
                 handler.validate_input(payload(duration_seconds=duration))
 
-    def test_graph_returns_silent_video_for_original_audio_mux(self):
+    def test_modo_reference_entrega_video_mudo_para_muxar_a_trilha(self):
+        """Clipe musical precisa da trilha EXATA: o video sai mudo e o worker muxa o audio enviado."""
         values = handler.validate_input(payload())
         workflow = handler.build_workflow(values, "ref.png", "ref.mp3")
-        node_types = {node["class_type"] for node in workflow.values()}
 
-        self.assertNotIn("VAEDecodeAudio", node_types)
+        self.assertEqual(values["audio_mode"], "reference")
         self.assertNotIn("audio", workflow["17"]["inputs"])
+
+    def test_modo_generated_decodifica_o_audio_que_o_modelo_criou(self):
+        """O latente do sampler e conjunto: decodificar com a VAE de audio devolve fala e ambiencia."""
+        values = handler.validate_input(payload(audio_mode="generated"))
+        workflow = handler.build_workflow(values, "ref.png", "ref.mp3")
+
+        self.assertEqual(workflow["16"]["class_type"], "VAEDecodeAudio")
+        self.assertEqual(workflow["16"]["inputs"]["samples"], ["14", 0])
+        self.assertEqual(workflow["16"]["inputs"]["vae"], ["6", 0])
+        self.assertEqual(workflow["17"]["inputs"]["audio"], ["16", 0])
+
+    def test_audio_mode_invalido_e_recusado(self):
+        with self.assertRaisesRegex(handler.WorkerError, "audio_mode"):
+            handler.validate_input(payload(audio_mode="qualquer"))
 
     def test_ref_videos_enter_as_frames_keeping_input_audio(self):
         values = handler.validate_input(payload(ref_videos=[VIDEO, VIDEO]))
